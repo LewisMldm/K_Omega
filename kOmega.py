@@ -67,8 +67,7 @@ w.assign(0.8)
 
 # weak form rans
 F1 = (de*inner(dot(grad(u), u), v)*dx - p*div(v)*dx + q*div(u)*dx
-      + 2*(1/Re)*inner(StrT(u), StrT(v))*dx
-      + 2*MuT(k, w)*inner(StrT(u), StrT(v))*dx
+      + 2*(1/Re + MuT(k, w))*inner(StrT(u), StrT(v))*dx
       + (2/3)*de*inner(grad(k), v)*dx
       )
 
@@ -84,9 +83,9 @@ F3 = (de*inner(u, grad(w))*s*dx - alpha*w*inner(Tau(k, w, u), StrT(u))*s*dx
 F = F1 + F2 + F3
 x, y = SpatialCoordinate(mesh)
 #[DirichletBC(Z.sub(0), as_vector([-(10*x - 1)*(10*x - 5) / 4, 0]), (1,)),
-bcu = [DirichletBC(Z.sub(0), as_vector([-(10*x - 1)*(10*x - 5)/4, 0]), (1,)),
+bcu = [DirichletBC(Z.sub(0), Constant((1, 0)), (1)),
        DirichletBC(Z.sub(0), Constant((0, 0)), (2, 4, 5, 6)),
-       DirichletBC(Z.sub(1), Constant(0), (3,))]
+       DirichletBC(Z.sub(1), Constant(0), (3))]
 bck = [DirichletBC(M, Constant(0), (2, 4, 5, 6)),
        DirichletBC(M, Constant(0.015), (1,))] # 0.015 true bc for k
        #DirichletBC(M, Constant(0.01), (1,))] 
@@ -217,7 +216,7 @@ ConstMu = 1
 ConstW = 1
 Alternate = False
 
-while (ConstMu >= 1.96e-5 and ConstMu <= 1 and ConstW >= 0.06262 and ConstW <= 1):
+while (ConstMu >= 1/5100 and ConstMu <= 1 and ConstW >= 0.06262 and ConstW <= 1):
     try:
         print("Re = ", 1/ConstMu)
         print("w wall = ", ConstW)
@@ -234,7 +233,7 @@ while (ConstMu >= 1.96e-5 and ConstMu <= 1 and ConstW >= 0.06262 and ConstW <= 1
             z_prev.assign(z)
 
 
-        if (ConstW == 0.06262 and ConstMu == 1.96e-5):
+        if (ConstW == 0.06262 and ConstMu == 1/5100):
             break
 
         if (ConstW == 0.06262):
@@ -244,7 +243,7 @@ while (ConstMu >= 1.96e-5 and ConstMu <= 1 and ConstW >= 0.06262 and ConstW <= 1
             ConstW = max(0.5*ConstW, 0.06262)
             w_wall.assign(ConstW)
         else:
-            ConstMu = max(0.5*ConstMu, 1.96e-5)
+            ConstMu = max(0.5*ConstMu, 1/5100)
             mu.assign(ConstMu)
 
     except:
