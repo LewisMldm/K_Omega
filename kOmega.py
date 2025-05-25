@@ -271,4 +271,4 @@ for foo in range(100):
     File.write(u_, p_, k, w)
 """
 print("w wall is ", ConstW)
-print("Mu is ", ConstMu)
+print("Re is ", 1/ConstMu)
