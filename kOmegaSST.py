@@ -56,20 +56,39 @@ def Dist(x, y):
 
 def F1(k, w, y):
     "F1 auxillary relation"
-    return math.tanh((min(max((norm(k)**0.5)/(BetaS*norm(w)*norm(y)), 500*mu/(norm(y)*norm(y)*norm(w)))
-                          , 4*SigOm2*norm(k)/(CDkw(w, k)*norm(y)*norm(y))))**4)
+    if ((norm(k)**0.5)/(BetaS*norm(w)*norm(y)) >= 500*mu/(norm(y)*norm(y)*norm(w))):
+        if ((norm(k)**0.5)/(BetaS*norm(w)*norm(y)) <= 4*SigOm2*norm(k)/(CDkw(w, k)*norm(y)*norm(y))):
+            return math.tanh((k**0.5/(BetaS*w*norm(y)))**4)
+        else:
+            return math.tanh((4*SigOm2*k/(CDkw(w, k)*norm(y)*norm(y)))**4)
+    else:
+        if (500*mu/(norm(y)*norm(y)*norm(w)) <= 4*SigOm2*norm(k)/(CDkw(w, k)*norm(y)*norm(y))):
+            return math.tanh((500*mu/(norm(y)*norm(y)*norm(w)))**4)
+        else:
+            return math.tanh((4*SigOm2*k/(CDkw(w, k)*norm(y)*norm(y)))**4)
+
 
 def F2(k, w, y):
     "F2 auxillary relation"
-    return math.tanh((max(2*(norm(k)**0.5)/(BetaS*norm(w)*norm(y)), 500*mu/(norm(y)*norm(y)*norm(w))))**2)
+    if (2*(norm(k)**0.5)/(BetaS*norm(w)*norm(y)) >= 500*mu/(norm(y)*norm(y)*norm(w))):
+        return math.tanh((2*(k**0.5)/(BetaS*w*norm(y)))**2)
+    else:
+        return math.tanh((500*mu/(norm(y)*norm(y)*w))**2)
 
 def CDkw(w, k):
     "CD_{k omega} auxillary relation"
-    return max(2*de*SigOm2*(1/norm(w))*norm(dot(grad(k), grad(w))), 10**-10)
+    if (2*de*SigOm2*(1/norm(w))*norm(dot(grad(k), grad(w))) >= 10**-10):
+        return 2*de*SigOm2*(1/w)*dot(grad(k), grad(w))
+    else:
+        return 10**-10
 
 def Pk(u, k, w):
     "Pk auxillary relation"
-    return min(inner(RsT(k, w, u), StrT(u)), Constant(10)*BetaS*norm(k)*norm(w))
+    if (norm(inner(RsT(k, w, u), StrT(u))) <= Constant(10)*BetaS*norm(k)*norm(w)):
+        return inner(RsT(k, w, u), StrT(u))
+    else:
+        return Constant(10)*BetaS*k*w
+
 
 def StrT(u):
     "Symmetric stress tensor"
@@ -82,7 +101,10 @@ def MuT(k, w, x, y):
     if norm(u) == 0 or norm(k) == 0:
         return Constant(0)
     else:
-        return a1*de*k/max(a1*1, Dist(x, y)*F2(k, w, y))
+        if (a1*norm(w) >= norm(Dist(x, y)*F2(k, w, y))):
+            return de*k/w
+        else:
+            return a1*de*k/(Dist(x, y)*F2(k, w, y))
 
 def Tau(k, w, u):
     """Auxiliary tensor to help with dissipation rate equation"""
@@ -104,13 +126,14 @@ Func1 = (de*inner(dot(grad(u), u), v)*dx - p*div(v)*dx + q*div(u)*dx
 
 Func2 = (de*dot(u, grad(k))*r*dx - inner(RsT(k, w, u), StrT(u))*r*dx 
       + BetaS*de*k*w*r*dx
-      + ((1/Re) + (SigK1*F1(k, w, y) + SigK2*(1-F2(k, w, y)))*MuT(k, w, x, y))*dot(grad(k), grad(r))*dx
+      + ((1/Re) 
+      + (SigK1*F1(k, w, y) + SigK2*(1-F2(k, w, y)))*MuT(k, w, x, y))*dot(grad(k), grad(r))*dx
       )
 
 Func3 = (de*inner(u, grad(w))*s*dx - (alpha1*F1(k, w, y) + alpha2*(1 - F2(k, w, y)))*w*inner(Tau(k, w, u), StrT(u))*s*dx
         + (Beta1*F1(k, w, y) + Beta2*(1 - F2(k, w, y)))*de*(w**2)*s*dx + ((1/Re) 
         + (SigOm1*F1(k, w, y) + SigOm2*(1 - F2(k, w, y)))*MuT(k, w, x, y))*dot(grad(w), grad(s))*dx
-         - Constant(2)*(1 - Constant(F1(k, w, y)))*(de*SigOm2/w)*dot(grad(k), grad(w))*s*dx
+         - Constant(2)*(1 - F1(k, w, y))*(de*SigOm2/w)*dot(grad(k), grad(w))*s*dx
       )
 
 F = Func1 + Func2 + Func3
