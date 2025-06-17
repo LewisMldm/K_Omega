@@ -46,49 +46,36 @@ x, y = SpatialCoordinate(mesh)
 
 def Dist(x, y):
     "Distance from wall boundary"
-    v1 = ((0.5 - norm(y))**2)**0.5 # top wall
-    v2 = ((0 - norm(y))**2)**0.5 # bottom wall
-    v3 = ((norm(y) - min(0.1, norm(y)))**2 + (norm(x) - 1)**2)**0.5 # vertical step
-    v4 = ((norm(y) - 0.1)**2 +(norm(x) - min(1, norm(x)))**2)**0.5 # horizontal step
-    v5 = ((norm(y) - max(norm(y), 0.1))**2 + norm(x)**2)**0.5 # inlet
-    v6 = ((norm(x) - 0.4)**2)**0.5
-    return min(min(min(v1, v2), min(v3, v4)), min(v5, v6)) # this needs changing for each mesh
+    v1 = ((0.5 - y)**2)**0.5 # top wall
+    v2 = ((0 - y)**2)**0.5 # bottom wall
+    v3 = ((y - conditional(le(0.1, y), 0.1, y))**2 + (x - 1)**2)**0.5 # vertical step
+    v4 = ((y - 0.1)**2 +(x - conditional(le(1, x), 1, x))**2)**0.5 # horizontal step
+    v5 = ((y - conditional(ge(y, 0.1), y, 0.1))**2 + x**2)**0.5 # inlet
+    v6 = ((x - 0.4)**2)**0.5
+    con1 = conditional(le(v1, v2), v1, v2)
+    con2 = conditional(le(v3, v4), v3, v4)
+    con3 = conditional(le(v5, v6), v5, v6)
+    con4 = conditional(le(con1, con2), con1, con2)
+    con5 = conditional(le(con3, con4), con3, con4)
+    return conditional(le(con4, con5), con4, con5) # this needs changing for each mesh
 
 def F1(k, w, y):
     "F1 auxillary relation"
-    if ((norm(k)**0.5)/(BetaS*norm(w)*norm(y)) >= 500*mu/(norm(y)*norm(y)*norm(w))):
-        if ((norm(k)**0.5)/(BetaS*norm(w)*norm(y)) <= 4*SigOm2*norm(k)/(CDkw(w, k)*norm(y)*norm(y))):
-            return math.tanh((k**0.5/(BetaS*w*norm(y)))**4)
-        else:
-            return math.tanh((4*SigOm2*k/(CDkw(w, k)*norm(y)*norm(y)))**4)
-    else:
-        if (500*mu/(norm(y)*norm(y)*norm(w)) <= 4*SigOm2*norm(k)/(CDkw(w, k)*norm(y)*norm(y))):
-            return math.tanh((500*mu/(norm(y)*norm(y)*norm(w)))**4)
-        else:
-            return math.tanh((4*SigOm2*k/(CDkw(w, k)*norm(y)*norm(y)))**4)
-
+    con1 = conditional(ge(k**0.5/(BetaS*w*y), 500*mu/(y*y*w)), k**0.5/(BetaS*w*y), 500*mu/(y*y*w))
+    con2 = conditional(le(con1, 4*SigOm2*k/(CDkw(w, k)*y*y)), con1, 4*SigOm2*k/(CDkw(w, k)*y*y))
+    return tanh(con2)
 
 def F2(k, w, y):
     "F2 auxillary relation"
-    if (2*(norm(k)**0.5)/(BetaS*norm(w)*norm(y)) >= 500*mu/(norm(y)*norm(y)*norm(w))):
-        return math.tanh((2*(k**0.5)/(BetaS*w*norm(y)))**2)
-    else:
-        return math.tanh((500*mu/(norm(y)*norm(y)*w))**2)
+    return tanh(conditional(ge(2*k**0.5/(BetaS*w*y), 500*mu/(y*y*w)), 2*k**0.5/(BetaS*w*y), 500*mu/(y*y*w)))
 
 def CDkw(w, k):
     "CD_{k omega} auxillary relation"
-    if (2*de*SigOm2*(1/norm(w))*norm(dot(grad(k), grad(w))) >= 10**-10):
-        return 2*de*SigOm2*(1/w)*dot(grad(k), grad(w))
-    else:
-        return 10**-10
+    return conditional(ge(2*de*SigOm2*(1/w)*dot(grad(k), grad(w)), 10**-10), 2*de*SigOm2*(1/w)*dot(grad(k), grad(w)), 10**-10)
 
 def Pk(u, k, w):
     "Pk auxillary relation"
-    if (norm(inner(RsT(k, w, u), StrT(u))) <= Constant(10)*BetaS*norm(k)*norm(w)):
-        return inner(RsT(k, w, u), StrT(u))
-    else:
-        return Constant(10)*BetaS*k*w
-
+    return conditional(ge(inner(RsT(k, w, u), StrT(u)), 10*BetaS*k*w), inner(RsT(k, w, u), StrT(u)), Constant(10)*BetaS*k*w)
 
 def StrT(u):
     "Symmetric stress tensor"
@@ -98,13 +85,7 @@ Id = Identity(mesh.geometric_dimension())
 
 def MuT(k, w, x, y):
     "Eddy viscosity."
-    if norm(u) == 0 or norm(k) == 0:
-        return Constant(0)
-    else:
-        if (a1*norm(w) >= norm(Dist(x, y)*F2(k, w, y))):
-            return de*k/w
-        else:
-            return a1*de*k/(Dist(x, y)*F2(k, w, y))
+    return conditional(ge(a1*w, Dist(x, y)*F2(k, w, y)), de*k/w, a1*de*k/(Dist(x, y)*F2(k, w, y)))
 
 def Tau(k, w, u):
     """Auxiliary tensor to help with dissipation rate equation"""
