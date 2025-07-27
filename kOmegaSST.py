@@ -1,7 +1,7 @@
 from firedrake import *
 import math
-#mesh = Mesh('BFS_ComparisonFile.msh')
-mesh = UnitSquareMesh(64, 64)
+mesh = Mesh('BFS_ComparisonFile.msh')
+#mesh = UnitSquareMesh(64, 64)
 
 # Taylor hood elements
 V = VectorFunctionSpace(mesh, "CG", 2)
@@ -22,11 +22,11 @@ v, q = TestFunctions(Z)
 r = TestFunction(M)
 s = TestFunction(N)
 
-epsilon = 10**-10
+epsilon = 1e-10
 
 # omega wall constant
-w_wall = Constant(10)
-w_inflow = Constant(4)
+w_wall = Constant(1e3)
+w_inflow = Constant(4.175)
 
 # closure coefficients
 alpha1 = Constant(5/9)
@@ -42,8 +42,7 @@ a1 = Constant(0.2)
 
 # fluid constants
 de = Constant(1)
-#mu = Constant(1) # Viscosity
-Re = Constant(1)
+Re = Constant(5)
 FlInt = Constant(0.05) # Fluid Intensity
 TurLS = Constant(0.22) # Turbulence length scale
 x, y = SpatialCoordinate(mesh)
@@ -52,15 +51,6 @@ x = x + epsilon
 
 def Dist(x, y):
     "Distance from wall boundary"
-
-    d_bottom = y
-    d_top = 1 - y
-    d_left = x
-    d_right = 1 - x
-    raw_dist = min_value(d_bottom, min_value(d_top, min_value(d_left, d_right)))
-    return max_value(raw_dist, epsilon)
-
-    """
     v1 = ((0.5 - y)**2)**0.5 # top wall
     v2 = ((0 - y)**2)**0.5 # bottom wall
     v3 = ((y - conditional(le(0.1, y), 0.1, y))**2 + (x - 1)**2)**0.5 # vertical step
@@ -73,6 +63,15 @@ def Dist(x, y):
     con4 = conditional(le(con1, con2), con1, con2)
     con5 = conditional(le(con3, con4), con3, con4)
     return conditional(le(con4, con5), con4, con5) # this needs changing for each mesh"""
+"""
+    d_bottom = y
+    d_top = 1 - y
+    d_left = x
+    d_right = 1 - x
+    raw_dist = min_value(d_bottom, min_value(d_top, min_value(d_left, d_right)))
+    return max_value(raw_dist, epsilon)
+
+"""
 
 def F1(k, w, y):
     "F1 auxillary relation"
@@ -111,7 +110,7 @@ def RsT(k, w, u):
     return k*Tau(k, w, u)
 
 
-z.assign(1.1)
+z.assign(0.5)
 k.assign(0.5)
 w.assign(4.5)
 
@@ -136,20 +135,21 @@ Func3 = (de*inner(u, grad(w))*s*dx - (alpha1*F1(k, w, y)
 
 F = Func1 + Func2 + Func3
 
-"""
-bcu = [DirichletBC(Z.sub(0), Constant((1, 0)), (1,)),
-       DirichletBC(Z.sub(0), Constant((0, 0)), (2, 4, 5, 6))]
+
+bcu = [DirichletBC(Z.sub(0), as_vector([-(10*y - 1)*(10*y - 5)/4, 0]), (1,)),
+       DirichletBC(Z.sub(0), as_vector([0, 0]), (2, 4, 5, 6))]
 bck = [DirichletBC(M, Constant(0), (2, 4, 5, 6)),
-       DirichletBC(M, Constant(1), (1,))] # 0.015 true bc for k
+       DirichletBC(M, Constant(0.015), (1,))] # 0.015 true bc for k
 bcw = [DirichletBC(N, w_wall, (2, 4, 5, 6)),
-       DirichletBC(N, Constant(w_inflow), (1,))] # 0.06262 true bc for w
+       DirichletBC(N, w_inflow, (1,))] # 0.06262 true bc for w
 """
 bcu = [DirichletBC(Z.sub(0), Constant((1, 0)), (4,)),
        DirichletBC(Z.sub(0), Constant((0, 0)), (1, 2, 3))]
 bck = [DirichletBC(M, Constant(1e-10), (1, 2, 3)),
        DirichletBC(M, Constant(0.01), (4,))]
-bcw = [DirichletBC(N, Constant(10), (1, 2, 3)),
-       DirichletBC(N, Constant(4), (4,))] 
+bcw = [DirichletBC(N, w_wall, (1, 2, 3)),
+       DirichletBC(N, Constant(4), (4,))]
+""" 
 bca = bcu +  bck + bcw
 # plotting tools
 u_, p_ = z.subfunctions
@@ -161,7 +161,7 @@ k.rename("Specific Kinetic Energy")
 nullspace = MixedVectorSpaceBasis(Z, [Z.sub(0), VectorSpaceBasis(constant=True)])
 appctx = {"Re": Re, "velocity_space": 0}
 
-k_lower_limit = 1e-15
+k_lower_limit = 1e-12
 full_lower_bounds = Function(M).assign(k_lower_limit)
 
 parameters = {
@@ -189,7 +189,7 @@ parameters = {
 
 k_params = {
         "mat_type": "aij",  # Matrix type (e.g., sparse matrix format)
-        "snes_type": "newtonls",  # Use Newton's method with line search
+        "snes_type": "ngs",  # Use Newton's method with line search
         "ksp_type": "fgmres",  # Direct solver for the linear system
         "pc_type": "ilu",  # Use ILU decomposition for preconditioning
         "snes_converged_reason": "",  # Print convergence reason
@@ -201,39 +201,39 @@ k_params = {
         "ksp_converged_reason":"",
         "ksp_monitor":"",
         "ksp_max_it": 100000,
-        "snes_stol": 1.0e-3,
+        "snes_stol": 1.0e-5,
         "snes_linesearch_monitor": None,
         "ksp_monitor_true_residual": None,
 	"snes_lower_bound": full_lower_bounds.dat.vec,
 	"snes_line_search_type": "bt", # Backtracking line search (often good)
-	"snes_linesearch_alpha": 1e-16, # Factor by which to reduce step if func increases (default 1e-4)
+	"snes_linesearch_alpha": 1e-12, # Factor by which to reduce step if func increases (default 1e-4)
 	"snes_linesearch_maxstep": 1.0,
         }
 
 w_params = {
         "mat_type": "aij",  # Matrix type (e.g., sparse matrix format)
         "snes_type": "qn",  # Use Newton's method with line search
-        "ksp_type": "fgmres",  # Direct solver for the linear system
+        "ksp_type": "gmres",  # Direct solver for the linear system
         "pc_type": "ilu",  # Use ILU decomposition for preconditioning
         "snes_converged_reason": "",  # Print convergence reason
         "snes_monitor": "",  # Monitor iterations during the solve
         "ksp_rtol": 1.0e-5,
         "snes_rtol": 1.0e-5,  # Set your desired relative tolerance for SNES here
         "snes_atol": 1.0e-5, # You can also set the absolute tolerance for SNES
-        "snes_max_it": 10000,    # And the maximum number of iterations
+        "snes_max_it": 100000,    # And the maximum number of iterations
         "ksp_converged_reason":"",
         "ksp_monitor":"",
-        "ksp_max_it": 10000,
+        "ksp_max_it": 100000,
         "snes_stol": 1.0e-5,
         "snes_linesearch_monitor": None,
         "ksp_monitor_true_residual": None,
         }
 
-File = VTKFile("kOmegaSSTSoln.pvd")
+File = VTKFile("kOmegaSSTSolnStep.pvd")
 
-ConstW = 2
-ConstW_inflow = 1
-ConstRe = 1
+ConstW = 1e3
+ConstW_inflow = 4.175
+ConstRe = 5
 
 u_solution, p_solution = z.subfunctions
 d_wall = Dist(x, y)
@@ -243,7 +243,7 @@ z_prev.assign(z)
 k_prev.assign(k)
 w_prev.assign(w)
 
-alpha_relax_u = 0.1
+alpha_relax_u = 0.5
 alpha_relax_k = 0.1
 alpha_relax_w = 0.1
 
@@ -251,7 +251,7 @@ alpha_relax_w = 0.1
 for foo in range(100):
 	try:
 		print("Re = ", ConstRe)
-		for ii in range(5):
+		for ii in range(10):
         		solve(Func1 == 0, z, bcs=bcu, nullspace=nullspace, solver_parameters=parameters, appctx=appctx)
         		z.assign(z_prev * (1 - alpha_relax_u) + z * alpha_relax_u)
         		z_prev.assign(z)
@@ -259,7 +259,7 @@ for foo in range(100):
         		print(f"DEBUG (After Func1 solve): u_min = {u_solution.dat.data.min()}, u_max = {u_solution.dat.data.max()}")
         		print(f"DEBUG (After Func1 solve): p_min = {p_solution.dat.data.min()}, p_max = {p_solution.dat.data.max()}")
 
-        		for jj in range(15):
+        		for jj in range(10):
             			print("i is ", ii,", j is ", jj, ", foo is ", foo)
             #print("W wall = ", ConstW)
             # Project and print d_wall values (though this shouldn't change, good to verify)
@@ -320,10 +320,18 @@ for foo in range(100):
             			pk_val = Function(P1_scalar).interpolate(Pk(u, k, w))
             			print(f"DEBUG: Min Pk after k solve: {pk_val.dat.data.min()}, Max Pk after k solve: {pk_val.dat.data.max()}")
             			solve(Func3 == 0, w, bcs=bcw, solver_parameters = w_params)
-		ConstRe *= 2
+
+		if (ConstRe == 5100):
+			#File.write(u_, p_, k, w)
+			break
+		
+		ConstRe = min(1.7 * ConstRe, 5100)
 		Re.assign(ConstRe)
+		#ConstW *= 2
+		#w_wall.assgign(ConstW)
 	except:
 		print("Re = ", ConstRe)
+		print("w wall = ", ConstW)
 		f1_val = Function(P1_scalar).interpolate(F1(k, w, y))
 		print(f"DEBUG: Min F1: {f1_val.dat.data.min()}, Max F1: {f1_val.dat.data.max()}")
 		f2_val = Function(P1_scalar).interpolate(F2(k, w, y))
@@ -348,19 +356,17 @@ for foo in range(100):
 		one_over_w = Function(N).interpolate(1/w)
 		print(f"DEBUG: Min 1/w = {one_over_w.dat.data.min()}, Max 1/w = {one_over_w.dat.data.max()}")
 		break
-
+"""
 #File.write(u_, p_, k, w)
-	"""
-	for ii in range(5):
+for ii in range(5):
 	print("i is ", ii)
 	solve(Func1 == 0, z, bcs=bcu, nullspace=nullspace, solver_parameters=parameters, appctx=appctx)
-	for jj in range(10):
-	print("j is ", jj)
-	solve(Func2 == 0, k, bcs=bck, solver_parameters = k_params)
-	solve(Func3 == 0, w, bcs=bcw, solver_parameters = w_params)
-	w_prev.assign(w)
-	k_prev.assign(k)
 	z_prev.assign(z)
-	"""
+	for jj in range(10):
+		print("j is ", jj)
+		solve(Func2 == 0, k, bcs=bck, solver_parameters = k_params)
+		solve(Func3 == 0, w, bcs=bcw, solver_parameters = w_params)
+		w_prev.assign(w)
+		k_prev.assign(k)
 
-
+"""
