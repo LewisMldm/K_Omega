@@ -1,6 +1,8 @@
 from firedrake import *
 
-mesh = Mesh('BFS_ComparisonFile.msh')
+mesh_ = Mesh('BFS_ComparisonFile.msh')
+mh = MeshHierarchy(mesh_, 1, refinements_per_level=3)
+mesh = mh[-1]
 
 # Taylor hood elements
 V = VectorFunctionSpace(mesh, "CG", 2)
@@ -23,7 +25,7 @@ s = TestFunction(N)
 
 # omega wall constant
 #w_wall = Constant(0.06262)
-w_wall = Constant(0.1)
+w_wall = Constant(10)
 
 # closure coefficients
 alpha = Constant(5/9)
@@ -34,8 +36,7 @@ Sig = Constant(0.5)
 
 # fluid constants
 de = Constant(1) # density
-mu = Constant(1)
-Re = 1/mu # want 5100
+Re = Constant(1)
 FlInt = 0.05 # Fluid Intensity
 TurLS = 0.22 # Turbulence length scale
 
@@ -84,14 +85,12 @@ F = F1 + F2 + F3
 x, y = SpatialCoordinate(mesh)
 #[DirichletBC(Z.sub(0), as_vector([-(10*x - 1)*(10*x - 5) / 4, 0]), (1,)),
 bcu = [DirichletBC(Z.sub(0), Constant((1, 0)), (1)),
-       DirichletBC(Z.sub(0), Constant((0, 0)), (2, 4, 5, 6)),
-       DirichletBC(Z.sub(1), Constant(0), (3))]
+       DirichletBC(Z.sub(0), Constant((0, 0)), (2, 4, 5, 6))]
 bck = [DirichletBC(M, Constant(0), (2, 4, 5, 6)),
        DirichletBC(M, Constant(0.015), (1,))] # 0.015 true bc for k
        #DirichletBC(M, Constant(0.01), (1,))] 
 bcw = [DirichletBC(N, w_wall, (2, 4, 5, 6)),
-       DirichletBC(N, Constant(0.06262), (1,))] # 0.06262 true bc for w
-       #DirichletBC(N, Constant(0.01), (1,))]
+       DirichletBC(N, Constant(46.385), (1,))] # 46.385 true bc for w
 
 # plotting tools
 u_, p_ = z.subfunctions
@@ -200,22 +199,25 @@ params = {
         "snes_type": "newtonls",  # Use Newton's method with line search 
         "ksp_type": "preonly",  # Direct solver for the linear system
         "pc_type": "ilu",  # Use ILU decomposition for preconditioning
-        #"snes_converged_reason": "",  # Print convergence reason
-        #"snes_monitor": "",  # Monitor iterations during the solve
-        "ksp_rtol": 1.0e-10,
-        "snes_rtol": 1.0e-10,  # Set your desired relative tolerance for SNES here
-        "snes_atol": 1.0e-10, # You can also set the absolute tolerance for SNES
-        "snes_max_it": 10000,    # And the maximum number of iterations
-        # "ksp_converged_reason":"",
-        #"ksp_monitor":""
+        "snes_converged_reason": "",  # Print convergence reason
+        "snes_monitor": "",  # Monitor iterations during the solve
+        "ksp_rtol": 1.0e-5,
+        "snes_rtol": 1.0e-5,  # Set your desired relative tolerance for SNES here
+        "snes_atol": 1.0e-5, # set the absolute tolerance for SNES
+        "snes_max_it": 10000, #  maximum number of iterations
+        "ksp_max_it": 10000,
+        "snes_divergence_tolerance": 1e20,
+        "snes_stol": 1e-5,
+        "ksp_converged_reason":"",
+        "ksp_monitor":""
         }
 
-File = VTKFile("NewkOmegaBFSCompare2.pvd")
+File = VTKFile("NewkOmegaBFSComp2.pvd")
 
-ConstMu = 1
-ConstW = 1
+ConstRe = 1
+ConstW = 10
 Alternate = True
-
+"""
 while (ConstMu >= 1/5100 and ConstMu <= 1 and ConstW >= 0.06262 and ConstW <= 1):
     try:
         print("Re = ", 1/ConstMu)
@@ -241,7 +243,7 @@ while (ConstMu >= 1/5100 and ConstMu <= 1 and ConstW >= 0.06262 and ConstW <= 1)
             Alternate = False
 
         if (Alternate == False):
-            ConstW = max(0.5*ConstW, 0.06262)
+            ConstW = min(2*ConstW, 10**10)
             w_wall.assign(ConstW)
         else:
             ConstMu = max(0.5*ConstMu, 1/5100)
@@ -249,7 +251,7 @@ while (ConstMu >= 1/5100 and ConstMu <= 1 and ConstW >= 0.06262 and ConstW <= 1)
 
     except:
         if (Alternate == False):
-            ConstW *= 1.1
+            ConstW *= 0.9
             w_wall.assign(ConstW)
         else:
             ConstMu *= 1.1
@@ -260,16 +262,19 @@ while (ConstMu >= 1/5100 and ConstMu <= 1 and ConstW >= 0.06262 and ConstW <= 1)
         w.assign(w_prev)
 """
 for foo in range(100):
-    ConstMu = ConstMu * 0.5
-    mu.assign(ConstMu)
+    print("Re = ", ConstRe)
+    print("w wall = ", ConstW)
+    ConstRe = min(ConstRe * 5, 5100)
+    Re.assign(ConstRe)
     for ii in range(10):
         solve(F1 == 0, z, bcs=bcu, nullspace=nullspace, solver_parameters=parameters, appctx=appctx)
         for jj in range(15):
             print("i is ", ii,", j is ", jj, ", foo is ", foo)
-            print("Re = ", 1/ConstMu)
             solve(F2 == 0, k, bcs=bck, solver_parameters = params)
             solve(F3 == 0, w, bcs=bcw, solver_parameters = params)
-    File.write(u_, p_, k, w)
-"""
+    #File.write(u_, p_, k, w)
+    ConstW *= 2
+    w_wall.assign(ConstW)
+
 print("w wall is ", ConstW)
-print("Re is ", 1/ConstMu)
+print("Re is ", ConstRe)
