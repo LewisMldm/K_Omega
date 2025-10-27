@@ -48,6 +48,7 @@ Id = Identity(mesh.geometric_dimension())
 def MuT(k, w):
     "Eddy viscosity."
     if norm(u) == 0 or norm(k) == 0:
+        import ipdb; ipdb.set_trace()
         return Constant(0)
     else:
         return de*k/w
@@ -95,73 +96,95 @@ w.rename("Specific Dissipation rate")
 k.rename("Specific Kinetic Energy")
 
 nullspace = MixedVectorSpaceBasis(Z, [Z.sub(0), VectorSpaceBasis(constant=True)])
-appctx = {"Re": Re, "velocity_space": 0}
+#appctx = {"Re": Re, "velocity_space": 0}
 parameters = {
+        # should specify options from fieldsplit 1
+        "snes_type": "newtonls",
+        #"snes_monitor": None,
+        #"snes_rtol": "1e-10",
+        #"snes_atol": "1e-10",
+        #"snes_divtol": "1e5",
+        #"snes_max_it": 5000,
         "mat_type": "matfree",
+        "ksp_type": "gmres", #"fgmres",
+        "snes_monitor": "",  # Monitor iterations during the solve
+        #"ksp_monitor_true_residual": None,
+        #"ksp_view": None,
         "pc_type": "fieldsplit",
-        "pc_python_type": "ilu",
-        "pc_fieldsplit_type": "schur",
+        "pc_fieldsplit_type": "additive",
+        #"pc_fieldsplit_type": "schur",  # additive or multiplicative is more robust, look also into the pure Stokes example
+        #"pc_fieldsplit_schur_fact_type": "diag",
+        "fieldsplit_0_ksp_type": "preonly",
         "fieldsplit_0_pc_type": "python",
         "fieldsplit_0_pc_python_type": "firedrake.AssembledPC",
         "fieldsplit_0_assembled_pc_type": "lu",
-        "snes_type": "newtonls",
-        "snes_rtol": "1e-10",
-        "snes_atol": "1e-10",
-        "snes_divtol": "1e5",
-        "snes_max_it": 5000,
-        "ksp_type": "fgmres",
-        "ksp_rtol": "1e-10",
-        "ksp_atol": "1e-10",
-        "ksp_divtol": "1e5",
-        "ksp_max_it": "5000",
-        "ksp_monitor_true_residual": None,
-        "ksp_gmres_modifiedgramschmidt": True,
-        "snes_monitor": None
+        "fieldsplit_1_ksp_type": "preonly",
+        "fieldsplit_1_pc_type": "python",
+        "fieldsplit_1_pc_python_type": "firedrake.MassInvPC",
+        "fieldsplit_1_Mp_mat_type": "aij",
+        "fieldsplit_1_Mp_pc_type": "lu"
+        #"ksp_rtol": "1e-8",
+        #"ksp_atol": "1e-8",
+        #"ksp_divtol": "1e5",
+        #"ksp_max_it": "5000",
+        #"ksp_gmres_modifiedgramschmidt": True,
         }
 NVP1 = NonlinearVariationalProblem(F1, z, bcs=bcu)
-NVS1 = NonlinearVariationalSolver(NVP1, nullspace=nullspace, solver_parameters=parameters, appctx=appctx)
-
+NVS1 = NonlinearVariationalSolver(NVP1, nullspace=nullspace, solver_parameters=parameters)
+#NVS1 = NonlinearVariationalSolver(NVP1, nullspace=nullspace, solver_parameters=parameters, appctx=appctx)
+# snes composite solver is possible
 params = {
         "mat_type": "aij",  # Matrix type (e.g., sparse matrix format)
-        "snes_type": "newtonls",  # Use Newton's method with line search 
-        "ksp_type": "preonly",  # Direct solver for the linear system
-        "pc_type": "ilu",  # Use ILU decomposition for preconditioning
-        "snes_converged_reason": "",  # Print convergence reason
+        "snes_type": "newtonls",  # Use Newton's method with line search   switch to basic line search
+        #"ksp_view": None,
+        "ksp_type": "gmres", #"preonly",  # Direct solver for the linear system,, maybe switch gmres so it checks
+        "pc_type": "lu",  # Use ILU decomposition for preconditioning  # can do snes_lag_preconditioner to specify how often to reform the matrix decomposition
+        "pc_factor_mat_solver_type" : "mumps",
+        #"snes_converged_reason": "",  # Print convergence reason
         "snes_monitor": "",  # Monitor iterations during the solve
-        "ksp_rtol": 1.0e-5,
-        "snes_rtol": 1.0e-5,  # Set your desired relative tolerance for SNES here
-        "snes_atol": 1.0e-5, # set the absolute tolerance for SNES
-        "snes_max_it": 10000, #  maximum number of iterations
-        "ksp_max_it": 10000,
-        "snes_divergence_tolerance": 1e20,
-        "snes_stol": 1e-5,
-        "ksp_converged_reason":"",
-        "ksp_monitor":""
+        #"ksp_rtol": 1.0e-5,
+        #"snes_rtol": 1.0e-5,  # Set your desired relative tolerance for SNES here
+        #"snes_atol": 1.0e-5, # set the absolute tolerance for SNES
+        #"snes_max_it": 50, #  maximum number of iterations
+        #"ksp_max_it": 10,  # should be 2 or 3
+        #"snes_divergence_tolerance": 1e20,
+        #"snes_stol": 1e-5,
+        #"ksp_converged_reason":"",
+        #"ksp_monitor":""
         }
 NVP2 = NonlinearVariationalProblem(F2, k, bcs=bck)
-NVS2 = NonlinearVariationalSolver(NVP2,solver_parameters=params)
+NVS2 = NonlinearVariationalSolver(NVP2,solver_parameters=params)# add prefix argument to pass various solver parameters from script
 NVP3 = NonlinearVariationalProblem(F3, w, bcs=bcw)
 NVS3 = NonlinearVariationalSolver(NVP3,solver_parameters=params)
 
 File = VTKFile("test.pvd")
 
-ConstRe = 1
-ConstW = 10
+ConstRe = 25
+ConstW = 100 # 10
+w_wall.assign(ConstW)
+Re.assign(ConstRe)
+
+effective_diffusion = Function(M, name="effective_diffusion")
+File_d = VTKFile("diffusion.pvd")
 for foo in range(100):
     print("Re = ", ConstRe)
     print("w wall = ", ConstW)
+    for ii in range(10):
+        effective_diffusion.interpolate(2*(1/Re + MuT(k, w)))
+        File_d.write(effective_diffusion, k, w)
+        print("Solve Navier_Stokes")
+        NVS1.solve()
+        print("Solve NVS2")
+        NVS2.solve()
+        print("Solve NVS3")
+        NVS3.solve()
+        #for jj in range(10):
+        #    print("i is ", ii,", j is ", jj, ", foo is ", foo)
+    File.write(u_, p_, k, w)
     ConstRe = min(ConstRe * 5, 5100)
     Re.assign(ConstRe)
-    for ii in range(10):
-        print(ii)
-        NVS1.solve()
-        for jj in range(15):
-            print("i is ", ii,", j is ", jj, ", foo is ", foo)
-            NVS2.solve()
-            NVS3.solve()
-    File.write(u_, p_, k, w)
-    ConstW *= 2
-    w_wall.assign(ConstW)
+    #ConstW *= 2
+    #w_wall.assign(ConstW)
 
 print("w wall is ", ConstW)
 print("Re is ", ConstRe)
