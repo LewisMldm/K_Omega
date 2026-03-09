@@ -4,7 +4,7 @@ import numpy as np
 
 continue_annotation()
 
-M = Mesh('Domain.msh')
+M = Mesh('DomainThin.msh')
 
 V = VectorFunctionSpace(M, "CG", 2)
 W = FunctionSpace(M, "CG", 1)
@@ -20,11 +20,10 @@ l = TestFunction(T)
 x, y = SpatialCoordinate(M)
 
 Re = Constant(1.0)
+Diff_coef = Constant(100)
 
 R = FunctionSpace(M, 'R', 0)
-JetIn = Function(R).assign(10)
-JetVent = Function(R).assign(1)
-angle = Function(R).assign(3*np.pi/2)
+JetIn = Function(R).assign(500)
 
 F = (
     1.0 / Re * inner(grad(u), grad(v)) * dx +
@@ -33,15 +32,13 @@ F = (
     div(u) * q * dx
 )
 
-Pol = (inner(grad(t),grad(l))*dx + dot(u, grad(t))*l*dx
+Pol = (Diff_coef*inner(grad(t),grad(l))*dx + dot(u, grad(t))*l*dx
       )
 
 bcs = [DirichletBC(Z.sub(0), as_vector([0, JetIn*(4*(x-4)*(x-5))]), (19,)),
-       DirichletBC(Z.sub(0), Constant((0, 0)), (21, 22)),
-       DirichletBC(Z.sub(0), as_vector([0, -JetVent*(x-7)*(x-10)*(4/9)]), (23))]
+       DirichletBC(Z.sub(0), Constant((0, 0)), (21, 22))]
 
-bcp = [DirichletBC(T, Constant(100), (22)),
-       DirichletBC(T, Constant(0), (19))]
+bcp = [DirichletBC(T, Constant(100), (22))]
 
 nullspace = MixedVectorSpaceBasis(
     Z, [Z.sub(0), VectorSpaceBasis(constant=True)])
@@ -54,27 +51,27 @@ parameters = {
         #"snes_monitor": None,
         "mat_type": "matfree",
         "ksp_type": "fgmres", #"fgmres",
-        #"snes_monitor": "",  # Monitor iterations during the solve
-        #"ksp_monitor_true_residual": None,
+        "snes_monitor": "",  # Monitor iterations during the solve
+        "ksp_monitor_true_residual": None,
         #"ksp_view": None,
         "pc_type": "fieldsplit",
         #"pc_fieldsplit_type": "multiplicative",
-	"pc_factor_mat_mumps_icntl_14": 200,
+        "pc_factor_mat_mumps_icntl_14": 200,
         "pc_fieldsplit_type": "schur",  # additive or multiplicative is more robust, look also into the pure Stokes example
         "pc_fieldsplit_schur_fact_type": "full",
         "pc_fieldsplit_off_diag_use_amat": True,
         #"fieldsplit_0_ksp_type": "preonly",
         "fieldsplit_0_pc_type": "python",
         "fieldsplit_0_pc_python_type": "firedrake.AssembledPC",
-	"fieldsplit_0_Mp_mat_type": "aij",
+        "fieldsplit_0_Mp_mat_type": "aij",
         "fieldsplit_0_assembled_pc_type": "lu",
-	"fieldsplit_0_pc_factor_mat_solver_type": "mumps",
+        "fieldsplit_0_pc_factor_mat_solver_type": "mumps",
         #"fieldsplit_1_ksp_type": "preonly",
         "fieldsplit_1_pc_type": "python",
         "fieldsplit_1_pc_python_type": "firedrake.MassInvPC",
         "fieldsplit_1_Mp_mat_type": "aij",
         "fieldsplit_1_Mp_pc_type": "lu",
-	"fieldsplit_1_pc_factor_mat_solver_type": "mumps",
+        "fieldsplit_1_pc_factor_mat_solver_type": "mumps",
         "ksp_rtol": "1.0e-5",
         "ksp_atol": "1.0e-5",
         "snes_rtol": "1.0e-10",
@@ -83,15 +80,13 @@ parameters = {
         "ksp_gmres_modifiedgramschmidt": True,
         }
 
-bounds = [(0.0, 20.0), (0.0, 20.0)]
-J = assemble(conditional(le(x, 4), exp(10*t), Constant(0)) * dx) + 0.1*assemble(JetIn * ds(19) + JetVent * ds(23))
-Jhat = ReducedFunctional(J, [Control(JetIn), Control(JetVent)])
+bounds = [(0.0, 1000.0)]
+J = assemble(conditional(le(x, 4), exp(10*t), Constant(0)) * dx) + 0.1*assemble(JetIn * ds(19))
+Jhat = ReducedFunctional(J, [Control(JetIn)])
 
-up.assign(0.5)
-
-u, p = up.subfunctions
-u.rename("Velocity")
-p.rename("Pressure")
+u_, p_ = up.subfunctions
+u_.rename("Velocity")
+p_.rename("Pressure")
 t.rename("Polutant Concentration")
 
 up.assign(0.5)
@@ -111,8 +106,7 @@ for ii in range(100):
         get_working_tape().progress_bar = ProgressBar
         optval = minimize(Jhat, bounds=bounds)
         JetIn.assign(optval[0])
-        JetVent.assign(optval[1])
-        print(f"Inlet vel = {float(JetIn):1.2f}, vent vel = {float(JetVent):1.2f}")
+        print(f"Inlet vel = {float(JetIn):1.2f}")
 
         print("final solve opt stokes")
         solve(F == 0, up, bcs=bcs, solver_parameters = parameters, nullspace=nullspace, appctx=appctx)
