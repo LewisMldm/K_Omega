@@ -4,7 +4,7 @@ import numpy as np
 
 continue_annotation()
 
-M = Mesh('DomainThin.msh')
+M = Mesh('DomainThinCoarse.msh')
 
 V = VectorFunctionSpace(M, "CG", 2)
 W = FunctionSpace(M, "CG", 1)
@@ -23,7 +23,7 @@ Re = Constant(1.0)
 Diff_coef = Constant(100)
 
 R = FunctionSpace(M, 'R', 0)
-JetIn = Function(R).assign(500)
+JetIn = Function(R).assign(100)
 
 F = (
     1.0 / Re * inner(grad(u), grad(v)) * dx +
@@ -80,16 +80,21 @@ parameters = {
         "ksp_gmres_modifiedgramschmidt": True,
         }
 
+solve(F == 0, up, bcs=bcs, nullspace=nullspace, solver_parameters=parameters, appctx=appctx)
+solve(Pol == 0, t, bcs=bcp)
+
 bounds = [(0.0, 1000.0)]
 J = assemble(conditional(le(x, 4), exp(10*t), Constant(0)) * dx) + 0.1*assemble(JetIn * ds(19))
 Jhat = ReducedFunctional(J, [Control(JetIn)])
+
+stop_annotating()
 
 u_, p_ = up.subfunctions
 u_.rename("Velocity")
 p_.rename("Pressure")
 t.rename("Polutant Concentration")
 
-up.assign(0.5)
+#up.assign(0.5)
 ConstRe = 1
 Re = Constant(ConstRe)
 
@@ -102,7 +107,6 @@ for ii in range(100):
     solve(Pol == 0, t, bcs=bcp)
 
     if ConstRe == 10000:
-        stop_annotating()
         get_working_tape().progress_bar = ProgressBar
         optval = minimize(Jhat, bounds=bounds)
         JetIn.assign(optval[0])
