@@ -28,7 +28,9 @@ R = FunctionSpace(M, 'R', 0)
 JetIn = Function(R).interpolate(1)
 
 a = ((1/Re)*inner(grad(u), grad(v)) - inner(p, div(v)) + inner(div(u), q))*dx
-bcs = [DirichletBC(Z.sub(0), as_vector([0, JetIn*((x-7)*(x-5))]), (19,)),
+#bcs = [DirichletBC(Z.sub(0), as_vector([0, JetIn*((x-7)*(x-5))]), (19,)),
+Ubdry = Function(V).interpolate(as_vector([0, JetIn*((x-7)*(x-5))]))
+bcs = [DirichletBC(Z.sub(0), Ubdry, (19,)),
        DirichletBC(Z.sub(0), Constant((0, 0)), (21,22))]
 solve(a==0, up, bcs=bcs)
 
@@ -40,7 +42,7 @@ solve(pol==0, t, bcs=bcp)
 
 #bcp = [DirichletBC(T, Produce, (22,))]
 #       DirichletBC(T, Constant(0), (19))]
-J = assemble(conditional(le(x,7), t**2, Constant(0)) * dx )
+J = assemble(conditional(le(x,7), t**2, Constant(0)) * dx) + 0.1*assemble(JetIn**2*ds(19))
 Jhat = ReducedFunctional(J, [Control(JetIn)])
 stop_annotating()
 
@@ -53,16 +55,19 @@ u_, p_ = up.subfunctions
 u_.rename("Mean Velocity")
 p_.rename("Pressure")
 File = VTKFile("Stokes_opt/test2.pvd")
-File.write(u_, p_, t, time=1)
+File.write(u_, p_, t)
+
+print(f"Inlet vel = {float(JetIn):1.2f}, J = {float(Jhat(JetIn)):1.2e}")
 
 get_working_tape().progress_bar = ProgressBar
-bounds=[0.0, 100.0]
-optval = minimize(Jhat, options={"maxiter":10}, bounds=bounds)
+#bounds=[0.0, 100.0]
+#optval = minimize(Jhat, options={"maxiter":10}, bounds=bounds)
+optval = minimize(Jhat)
 
 # plot final pollution concetration
 JetIn.interpolate(optval)
-print(f"Inlet vel = {float(JetIn):1.2f}")
-print("final solve opt")
+print(f"Inlet vel = {float(JetIn):1.2f}, J = {float(Jhat(JetIn)):1.2e}")
+Ubdry.interpolate(as_vector([0, JetIn*((x-7)*(x-5))]))
 solve(a==0, up, bcs=bcs)
 solve(pol==0, t, bcs=bcp)
-File.write(u_, p_, t, time=2)
+File.write(u_, p_, t)
