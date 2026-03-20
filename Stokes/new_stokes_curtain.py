@@ -22,53 +22,47 @@ l = TestFunction(T)
 
 Re = Constant(1e5)
 Diff_coef = Constant(1)
-Produce = Constant(100)
+#Produce = Constant(100)
 
 R = FunctionSpace(M, 'R', 0)
-JetIn = Function(R).assign(500)
+JetIn = Function(R).interpolate(1)
 
 a = ((1/Re)*inner(grad(u), grad(v)) - inner(p, div(v)) + inner(div(u), q))*dx
-
-pol = (Diff_coef*inner(grad(t),grad(l)) + dot(u, grad(t))*l)*dx + exp(-10 * ((x - 8.5)**2 + (y - 0)**2))*l*dx 
-
 bcs = [DirichletBC(Z.sub(0), as_vector([0, JetIn*((x-7)*(x-5))]), (19,)),
        DirichletBC(Z.sub(0), Constant((0, 0)), (21,22))]
-
-bcp = [DirichletBC(T, Produce, (22,))]
-#       DirichletBC(T, Constant(0), (19))]
-
 solve(a==0, up, bcs=bcs)
-bounds=[0.0, 10000.0]
 
-solve (pol==0, t)
+pol = (Diff_coef*inner(grad(t),grad(l)) + dot(u, grad(t))*l)*dx - 100*exp(-10 * ((x - 8.5)**2 + (y - 0)**2))*l*dx
+bcp = DirichletBC(T, Constant(0), (19))
+solve(pol==0, t, bcs=bcp)
 
-#Z1 = V * W * T
-#up1 = Function(Z1)
-#u1, p1, t1 = split(up1)
-#v1, q1, l1 = TestFunctions(Z1)
+#myfile.write(u_, p_, t)
 
+#bcp = [DirichletBC(T, Produce, (22,))]
+#       DirichletBC(T, Constant(0), (19))]
 J = assemble(conditional(le(x,7), t**2, Constant(0)) * dx )
+Jhat = ReducedFunctional(J, [Control(JetIn)])
+stop_annotating()
+
+"""for JetIn_ in [1, 2, 10, 20]:
+    JetIn.interpolate(JetIn_)
+    print(f"Inlet vel = {float(JetIn):1.2f}, J = {float(Jhat(JetIn)):1.2e}")
+"""
 
 u_, p_ = up.subfunctions
-
 u_.rename("Mean Velocity")
 p_.rename("Pressure")
-
 File = VTKFile("Stokes_opt/test2.pvd")
 File.write(u_, p_, t, time=1)
 
-Jhat = ReducedFunctional(J, [Control(JetIn)])
-
-
-stop_annotating()
 get_working_tape().progress_bar = ProgressBar
-
+bounds=[0.0, 100.0]
 optval = minimize(Jhat, options={"maxiter":10}, bounds=bounds)
 
-JetIn.assign(optval)
-
+# plot final pollution concetration
+JetIn.interpolate(optval)
 print(f"Inlet vel = {float(JetIn):1.2f}")
 print("final solve opt")
 solve(a==0, up, bcs=bcs)
-solve(pol==0, t)
+solve(pol==0, t, bcs=bcp)
 File.write(u_, p_, t, time=2)
