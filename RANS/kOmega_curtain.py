@@ -2,9 +2,9 @@ from firedrake import *
 from firedrake.adjoint import *
 import numpy as np
 
-#:continue_annotation()
+continue_annotation()
 
-mesh = Mesh('DomainThinCoarse.msh')
+mesh = Mesh('DomainThin.msh')
 
 # Taylor hood elements
 V = VectorFunctionSpace(mesh, "CG", 2)
@@ -28,15 +28,16 @@ prev_w_try = Function(N)
 v, q = TestFunctions(Z)
 r = TestFunction(M)
 s = TestFunction(N)
-t = Function(T)
+t = Function(T, name="polutant concentration")
 l = TestFunction(T)
 
 # omega wall constant
 #w_wall = Constant(0.06262)
 w_wall = Constant(10)
-Diff_coef = Constant(100)
+Diff_coef = Constant(1)
 R = FunctionSpace(mesh, 'R', 0)
-JetIn = Function(R).assign(100)
+JetIn = Function(R).interpolate(1)
+Vent = Function(R).interpolate(1)
 
 # closure coefficients
 alpha = Constant(5/9)
@@ -93,28 +94,18 @@ F3 = (de*dot(u, grad(w))*s*dx - alpha*w*inner(Tau(k, w, u), StrT(u))*s*dx
         + Beta*de*(w**2)*s*dx + ((1/Re) + Sig*MuT(k, w))*dot(grad(w), grad(s))*dx
       )
 
-Pol = (Diff_coef*inner(grad(t),grad(l))*dx + dot(u, grad(t))*l*dx
-      )
 
 x, y = SpatialCoordinate(mesh)
 
-bcu = [DirichletBC(Z.sub(0), as_vector([0, JetIn*(4*(x-4)*(x-5))]), (19,)),
+Ubdry = Function(V).interpolate(as_vector([0, JetIn*((x-7)*(x-5))]))
+bcu = [DirichletBC(Z.sub(0), Ubdry, (19,)),
        DirichletBC(Z.sub(0), Constant((0, 0)), (21, 22))]
 
-bcp = [DirichletBC(T, Constant(100), (22))]
-
+Ubdry2 = Function(M).interpolate((JetIn**2)*((x-7)*(x-5))*0.04)
 bck = [DirichletBC(M, Constant(0), (21, 22)),
-       DirichletBC(M, 1.5*(0.2*JetIn)*(0.2*JetIn)*(4*(x-4)*(x-5)), 19)] # 0.015 true bc for k
+       DirichletBC(M, Ubdry2, 19)]
 
 bcw = [DirichletBC(N, w_wall, (21, 22))]
-
-# plotting tools
-u_, p_ = z.subfunctions
-u_.rename("Mean Velocity")
-p_.rename("Pressure")
-w.rename("Specific Dissipation rate")
-k.rename("Specific Kinetic Energy")
-t.rename("Polutant concentration")
 
 nullspace = MixedVectorSpaceBasis(Z, [Z.sub(0), VectorSpaceBasis(constant=True)])
 appctx = {"Re": Re, "velocity_space": 0}
@@ -186,12 +177,10 @@ NVS2 = NonlinearVariationalSolver(NVP2,solver_parameters=params, appctx=appctx2)
 NVP3 = NonlinearVariationalProblem(F3, w, bcs=bcw)
 NVS3 = NonlinearVariationalSolver(NVP3,solver_parameters=params, appctx=appctx2)
 
-File = VTKFile("kOm_opt.pvd")
-
 ConstRe = 1
-ConstW = 100 # 10
-w_wall.assign(ConstW)
-Re.assign(ConstRe)
+ConstW = 10
+w_wall = Constant(ConstW)
+Re = Constant(ConstRe)
 
 prev_z.assign(z)
 prev_z_try.assign(z)
@@ -203,16 +192,42 @@ relax_z = 1
 relax_k = 0.5
 relax_w = 0.5
 
+for i in range(10):
+    NVS1.solve()
+    NVS2.solve()
+    NVS3.solve()
 
-u_solution, p_solution = z.subfunctions
+Pol = (Diff_coef*inner(grad(t),grad(l))*dx + dot(u, grad(t))*l*dx - 100*exp(-10 * ((x - 8.5)**2 + (y - 0)**2))*l*dx
+      )
 
-effective_diffusion = Function(M, name="effective_diffusion")
-File_d = VTKFile("diffusion.pvd")
+bcp = [DirichletBC(T, Constant(0), (19))]
+solve(Pol==0, t, bcs=bcp)
+
+J = assemble(conditional(le(x, 7), t**2, Constant(0)) * dx) + 0.1*assemble(JetIn**2 * ds(19))
+Jhat = ReducedFunctional(J, [Control(JetIn)])
+
+stop_annotating()
+
+ConstRe = 1
+ConstW = 10
+w_wall = Constant(ConstW)
+Re = Constant(ConstRe)
+
+# plotting tools
+u_, p_ = z.subfunctions
+u_.rename("Mean Velocity")
+p_.rename("Pressure")
+w.rename("Specific Dissipation rate")
+k.rename("Specific Kinetic Energy")
+t.rename("Polutant concentration")
+
 Re_increment = 100
-w_increment = 1000
+w_increment = 10
 
 switch = False
 
+File = VTKFile("kOm_opt/Vent.pvd")
+File.write(u_, p_, k, w, t)
 
 while(w_increment > 1e-10 and ConstRe >= 1):
     try:
@@ -235,16 +250,37 @@ while(w_increment > 1e-10 and ConstRe >= 1):
         print("Begin solve con diff")
         solve(Pol == 0, t, bcs=bcp)
         
-        File.write(u_, p_, k, w, time = ConstRe)
+        File.write(u_, p_, k, w, t)
 
         if (ConstRe == 10000):
             switch = True
         if (switch == False):
-            ConstRe = min(ConstRe + Re_increment, 10000)
-            Re.assign(ConstRe)
+            print("increasing Re")
+            ConstRe = min(ConstRe*2, 10000)
+            Re = Constant(ConstRe)
         else:
-            ConstW = min(ConstW + w_increment, 10**10)
-            w_wall.assign(ConstW)
+            print(f"Vent vel = {float(JetIn):1.2f}, J = {float(Jhat(JetIn)):1.2e}")
+            get_working_tape().progress_bar = ProgressBar
+            optval = minimize(Jhat)
+            JetIn.interpolate(optval)
+            print(f"Vent vel = {float(JetIn):1.2f}, J = {float(Jhat(JetIn)):1.2e}")
+            Ubdry.interpolate(as_vector([0, JetIn*((x-7)*(x-5))]))
+            Ubdry2.interpolate(JetIn*((x-7)*(x-5))*JetIn*((x-7)*(x-5))*0.2*0.2)
+            print("final solve opt stokes")
+            NVS1.solve()
+            prev_z.assign(z)
+            NVS2.solve()
+            prev_k.assign(k)
+            NVS3.solve()
+            prev_w.assign(w)
+            print("final solve opt con diff")
+            solve(Pol == 0, t, bcs=bcp)
+
+            File.write(u_, p_, k, w, t)
+            if (ConstW == 10**10):
+                break
+            ConstW = min(ConstW*2, 10**10)
+            w_wall = Constant(ConstW)
 
         prev_z_try.assign(z)
         prev_k_try.assign(k)
