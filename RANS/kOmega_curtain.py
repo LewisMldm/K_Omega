@@ -38,6 +38,8 @@ Diff_coef = Constant(1)
 R = FunctionSpace(mesh, 'R', 0)
 JetIn = Function(R).interpolate(1)
 Vent = Function(R).interpolate(1)
+JetCost = 1
+VentCost = 1
 
 # closure coefficients
 alpha = Constant(5/9)
@@ -97,13 +99,13 @@ F3 = (de*dot(u, grad(w))*s*dx - alpha*w*inner(Tau(k, w, u), StrT(u))*s*dx
 
 x, y = SpatialCoordinate(mesh)
 
-Ubdry = Function(V).interpolate(as_vector([0, JetIn*((x-7)*(x-5))]))
-bcu = [DirichletBC(Z.sub(0), Ubdry, (19,)),
+UbdryVent1 = Function(V).interpolate(as_vector([0, JetIn*((x-7)*(x-5))]))
+bcu = [DirichletBC(Z.sub(0), UbdryVent1, (19,)),
        DirichletBC(Z.sub(0), Constant((0, 0)), (21, 22))]
 
-Ubdry2 = Function(M).interpolate((JetIn**2)*((x-7)*(x-5))*0.04)
+UbdryVent2 = Function(M).interpolate((JetIn**2)*((x-7)*(x-5))*0.04)
 bck = [DirichletBC(M, Constant(0), (21, 22)),
-       DirichletBC(M, Ubdry2, 19)]
+       DirichletBC(M, UbdryVent2, 19)]
 
 bcw = [DirichletBC(N, w_wall, (21, 22))]
 
@@ -200,7 +202,7 @@ for i in range(10):
 Pol = (Diff_coef*inner(grad(t),grad(l))*dx + dot(u, grad(t))*l*dx - 100*exp(-10 * ((x - 8.5)**2 + (y - 0)**2))*l*dx
       )
 
-bcp = [DirichletBC(T, Constant(0), (19))]
+bcp = [DirichletBC(T, Constant(0), (19, 20))]
 solve(Pol==0, t, bcs=bcp)
 
 J = assemble(conditional(le(x, 7), t**2, Constant(0)) * dx) + 0.1*assemble(JetIn**2 * ds(19))
@@ -264,8 +266,8 @@ while(w_increment > 1e-10 and ConstRe >= 1):
             optval = minimize(Jhat)
             JetIn.interpolate(optval)
             print(f"Vent vel = {float(JetIn):1.2f}, J = {float(Jhat(JetIn)):1.2e}")
-            Ubdry.interpolate(as_vector([0, JetIn*((x-7)*(x-5))]))
-            Ubdry2.interpolate(JetIn*((x-7)*(x-5))*JetIn*((x-7)*(x-5))*0.2*0.2)
+            UbdryVent1.interpolate(as_vector([0, JetIn*((x-7)*(x-5))]))
+            UbdryVent2.interpolate(JetIn*((x-7)*(x-5))*JetIn*((x-7)*(x-5))*0.2*0.2)
             print("final solve opt stokes")
             NVS1.solve()
             prev_z.assign(z)
@@ -277,6 +279,7 @@ while(w_increment > 1e-10 and ConstRe >= 1):
             solve(Pol == 0, t, bcs=bcp)
 
             File.write(u_, p_, k, w, t)
+            print("File written")
             if (ConstW == 10**10):
                 break
             ConstW = min(ConstW*2, 10**10)
