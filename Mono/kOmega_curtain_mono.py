@@ -74,7 +74,6 @@ z.assign(0.5)
 
 # weak form rans
 F1 = (de*inner(dot(grad(u), u), v)*dx - p*div(v)*dx + q*div(u)*dx
-      + 2*(Re**-1)*inner(StrT(u), StrT(v))*dx
       + 2*(1/Re + MuT(k, w))*inner(StrT(u), StrT(v))*dx
       + (2/3)*de*dot(grad(k), v)*dx
       )
