@@ -2,7 +2,7 @@ from firedrake import *
 from firedrake.adjoint import *
 import numpy as npi
 
-mesh = Mesh('backward-facing-step1.msh')
+mesh = Mesh('backward-facing-step.msh')
 
 #N = 64
 
@@ -25,7 +25,7 @@ t = Function(T, name="polutant concentration")
 l = TestFunction(T)
 
 # variables
-w_wall = Constant(1)
+w_wall = Constant(10e10)
 w_inflow = Constant(46.385)
 Diff_coef = Constant(1)
 R = FunctionSpace(mesh, 'R', 0)
@@ -74,6 +74,7 @@ z.assign(0.5)
 
 # weak form rans
 F1 = (de*inner(dot(grad(u), u), v)*dx - p*div(v)*dx + q*div(u)*dx
+      + 2*(Re**-1)*inner(StrT(u), StrT(v))*dx
       + 2*(1/Re + MuT(k, w))*inner(StrT(u), StrT(v))*dx
       + (2/3)*de*dot(grad(k), v)*dx
       )
@@ -174,18 +175,13 @@ NVP = NonlinearVariationalProblem(F, z, bcs=bc)
 NVS = NonlinearVariationalSolver(NVP, solver_parameters=parameters, appctx=appctx)
 
 ConstRe = 1
-ConstW = 10e10
-w_wall = Constant(ConstW)
-Re = Constant(ConstRe)
 
 prev_z.assign(z)
 
-relax_z = 1
+#Pol = (Diff_coef*inner(grad(t),grad(l))*dx + dot(u, grad(t))*l*dx - 100*exp(-10 * ((x - 8.5)**2 + (y - 0)**2))*l*dx
+#      )
 
-Pol = (Diff_coef*inner(grad(t),grad(l))*dx + dot(u, grad(t))*l*dx - 100*exp(-10 * ((x - 8.5)**2 + (y - 0)**2))*l*dx
-      )
-
-bcp = [DirichletBC(T, Constant(0), (19))]
+#bcp = [DirichletBC(T, Constant(0), (19))]
 
 # plotting tools
 u_, p_, k_, w_ = z.subfunctions
@@ -193,18 +189,18 @@ u_.rename("Mean Velocity")
 p_.rename("Pressure")
 w_.rename("Specific Dissipation rate")
 k_.rename("Specific Kinetic Energy")
-t.rename("Polutant concentration")
+#t.rename("Polutant concentration")
 
 File = VTKFile("kOm_monoBFS_vague.pvd")
 
 for jj in range(100):
-	print("Re is ", ConstRe)
-	print("w wall is ", ConstW)
-	NVS.solve()
-	File.write(u_, p_, k_, w_, t)
+    print("Re is ", float(Re))
+    print("w wall is ", float(w_wall))
+    NVS.solve()
+    File.write(u_, p_, k_, w_, time=ConstRe)
 
-	if (ConstRe == 5100):
-		break
-	else:
-		ConstRe = min(ConstRe * 2, 5100)
-		Re = Constant(ConstRe)
+    if (ConstRe == 5100):
+        break
+    else:
+        ConstRe = min(ConstRe*2, 5100)
+        Re.assign(ConstRe)
