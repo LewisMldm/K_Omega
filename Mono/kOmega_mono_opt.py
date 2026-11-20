@@ -1,10 +1,14 @@
 from firedrake import *
 from firedrake.adjoint import *
+import signal
+import time
 #import numpy as npi
 
 continue_annotation()
 
 mesh = Mesh('DomainThinCoarse.msh')
+#mesh_hierarchy = MeshHierarchy(base_mesh, refinement_levels=2)
+#mesh = mesh_hierarchy[-1]
 
 # Taylor hood elements
 V = VectorFunctionSpace(mesh, "CG", 2)
@@ -23,8 +27,8 @@ t = Function(T, name="polutant concentration")
 l = TestFunction(T)
 
 # variables
-w_wall = Constant(1)
-w_inflow = Constant(46.385) #Constant(46.385)
+w_w = 10
+w_i = 1 #Constant(46.385)
 Diff_coef = Constant(1)
 R = FunctionSpace(mesh, 'R', 0)
 JetIn = Function(R).interpolate(1)
@@ -41,7 +45,7 @@ Sig = Constant(0.5)
 
 # fluid constants
 de = Constant(1) # density
-Re = Constant(1)
+Re = Function(R).assign(1)
 FlInt = 0.05 # Fluid Intensity
 TurLS = 0.22 # Turbulence length scale
 
@@ -55,7 +59,7 @@ Id = Identity(mesh.geometric_dimension())
 def MuT(k, w):
     "Eddy viscosity."
     if norm(u) == 0 or norm(k) == 0:
-        import ipdb; ipdb.set_trace()
+        #import ipdb; ipdb.set_trace()
         return Constant(0)
     else:
        	return de*k/w
@@ -68,7 +72,11 @@ def RsT(k, w, u):
     """Reynolds Stress Tensor"""
     return k*Tau(k, w, u)
 
-z.assign(0.5)
+u_init, p_init, k_init, w_init = z.subfunctions
+u_init.assign(0.0)
+p_init.assign(0.0)
+k_init.assign(0.1)
+w_init.assign(10.0)
 
 # weak form rans
 F1 = (de*inner(dot(grad(u), u), v)*dx - p*div(v)*dx + q*div(u)*dx
@@ -90,15 +98,21 @@ x, y = SpatialCoordinate(mesh)
 
 F = F1 + F2 + F3
 
-Ubdry1 = Function(V).interpolate(as_vector([0, JetIn*((x-7)*(x-5))]))
-Ubdry2 = Function(M).interpolate((JetIn**2)*((x-7)*(x-5))*0.04)
+Ubdry1 =Function(V).interpolate(as_vector([0, JetIn*((x-7)*(x-5))]))
+Ubdry2 =Function(M).interpolate((JetIn**2)*(-(x-7)*(x-5))*0.04)
+C_mu_quarter = 0.5477  # (BetaS)**0.25
+TurLS = 0.22
+
+# w = sqrt(k) / (C_mu^1/4 * TurLS)
+W_inlet_expr = sqrt(Ubdry2 + 1e-6) / (C_mu_quarter * TurLS)
+Ubdry3 = Function(N).interpolate(W_inlet_expr)
 
 bc = [DirichletBC(Z.sub(0), Ubdry1, (19,)),
        DirichletBC(Z.sub(0), Constant((0,0)), (21, 22)),
        DirichletBC(Z.sub(2), Ubdry2, (19,)),
        DirichletBC(Z.sub(2), Constant(0), (21, 22)),
-       DirichletBC(Z.sub(3), w_inflow, (19,)),
-       DirichletBC(Z.sub(3), w_wall, (21, 22))]
+       DirichletBC(Z.sub(3), Ubdry3, (19,)),
+       DirichletBC(Z.sub(3), Constant(w_w), (21, 22))]
 
 appctx = {"Re": Re, "velocity_space": 0}
 
@@ -106,9 +120,9 @@ parameters = {
     "snes_type": "newtonls",
     "mat_type": "matfree",
     "ksp_type": "fgmres",
-    "ksp_rtol": 1.0e-5,
-    "ksp_atol": 1.0e-5,
-    "snes_rtol": 1.0e-5,
+    "ksp_rtol": 1.0e-3,
+    "ksp_atol": 1.0e-3,
+    "snes_rtol": 1.0e-3,
     "ksp_gmres_modifiedgramschmidt": True,
     "snes_monitor": None,
     "ksp_monitor": None,
@@ -156,9 +170,6 @@ parameters = {
 NVP = NonlinearVariationalProblem(F, z, bcs=bc)
 NVS = NonlinearVariationalSolver(NVP, solver_parameters=parameters, appctx=appctx)
 
-ConstRe = 1
-ConstW = 1
-
 Pol = (Diff_coef*inner(grad(t),grad(l))*dx + dot(u, grad(t))*l*dx - 100*exp(-10 * ((x - 8.5)**2 + (y - 0)**2))*l*dx
       )
 
@@ -171,6 +182,76 @@ solve(Pol == 0, t, bcs=bcp)
 J = assemble(conditional(le(x, 4), exp(10*t), Constant(0)) * dx) + 0.1*assemble(JetIn * ds(19))
 Jhat = ReducedFunctional(J, [Control(JetIn)])
 
+def Recur(CurrRe, WantedRe, parameters, NVP):
+    stop_annotating()
+    try:
+        Re.assign(float(WantedRe))
+        solve_with_timeout(NVP, z, 60.0, parameters)
+        #NVS.solve()
+        solve(Pol == 0, t, bcs=bcp)
+        return float(WantedRe)
+    except:
+        ConAnn(CurrRe, WantedRe, parameters, NVP)
+
+def ConAnn(CurrRe, WantedRe, parameters, NVP):
+    values = list(np.linspace(CurrRe, WantedRe, 10)) #list(np.arange(1.0, WantedRe, 5))
+    values.append(WantedRe)
+    Cur_Succ_Re = CurrRe
+    if CurrRe == WantedRe:
+        input("something wrong")
+    for value in values[1:]:
+        print("Re = ", value)
+        Recur(CurrRe, value, parameters, NVP)
+        Curr_Succ_Re = recur(Curr_Succ_Re, value)
+
+    return u
+
+def solve_with_timeout(problem, solution, timeout_seconds, parameters):
+    start_time = time.time()
+
+    def elapsed():
+        return time.time() - start_time
+
+    def alarm_handler(signum, frame):
+        raise SolverTimeoutError(
+            f"Solver timed out after {elapsed():.2f} seconds (limit: {timeout_seconds}s)."
+        )
+
+    def snes_monitor(snes, iteration, rnorm):
+        if elapsed() > timeout_seconds:
+            snes.setConvergedReason(PETSc.SNES.ConvergedReason.DIVERGED_USER)
+            raise SolverTimeoutError(
+                f"SNES timed out after {elapsed():.2f} seconds (limit: {timeout_seconds}s)."
+            )
+
+    def ksp_monitor(ksp, iteration, rnorm):
+        if elapsed() > timeout_seconds:
+            ksp.setConvergedReason(PETSc.KSP.ConvergedReason.DIVERGED_USER)
+
+    solver = NonlinearVariationalSolver(problem, solver_parameters=parameters)
+    snes = solver.snes
+    ksp = snes.getKSP()
+
+    snes.setMonitor(snes_monitor)
+    ksp.setMonitor(ksp_monitor)
+
+    # Set an OS-level alarm so even a slow single KSP/MUMPS step is interrupted
+    old_handler = signal.signal(signal.SIGALRM, alarm_handler)
+    signal.setitimer(signal.ITIMER_REAL, float(timeout_seconds))
+
+    try:
+        solver.solve()
+        if elapsed() > timeout_seconds:
+            raise SolverTimeoutError(
+                f"Solver exceeded {timeout_seconds}s limit."
+            )
+    finally:
+        # Always cancel the timer and restore the previous signal handler
+        signal.setitimer(signal.ITIMER_REAL, 0.0)
+        signal.signal(signal.SIGALRM, old_handler)
+        ksp.monitorCancel()
+        snes.monitorCancel()
+
 # plotting tools
 u_, p_, k_, w_ = z.subfunctions
 u_.rename("Mean Velocity")
@@ -180,7 +261,26 @@ k_.rename("Specific Kinetic Energy")
 t.rename("Polutant concentration")
 
 File = VTKFile("kOm_mono_optimized_jet.pvd")
+Re.assign(1e8)
+#solve_with_timeout(NVP, z, 10.0, parameters)
+Recur(float(Re), 1e6, parameters, NVP)
+File.write(u_, p_, k_, w_, t)
+get_working_tape().progress_bar = ProgressBar
+optval = minimize(Jhat)
+print(f"Vent vel = {float(JetIn):1.2f}, J = {float(Jhat(JetIn)):1.2e}")
+get_working_tape().progress_bar = ProgressBar
+optval = minimize(Jhat)
+JetIn.interpolate(optval)
+print(f"Vent vel = {float(JetIn):1.2f}, J = {float(Jhat(JetIn)):1.2e}")
+Ubdry1.interpolate(as_vector([0, JetIn*((x-7)*(x-5))]))
+Ubdry2.interpolate(JetIn*((x-7)*(x-5))*JetIn*((x-7)*(x-5))*0.2*0.2)
+print("final solve opt stokes")
+NVS.solve()
+print("final solve opt con diff")
+solve(Pol == 0, t, bcs=bcp)
+File.write(u_, p_, k_, w_, t)
 
+"""
 for jj in range(100):
     print("Re is ", float(Re))
     print("w wall is ", float(w_wall))
@@ -189,9 +289,8 @@ for jj in range(100):
     solve(Pol == 0, t, bcs=bcp)
     print("solves done")
 
-    if (ConstRe == 1e8):
+    if (ConstRe >= 1e8):
         File.write(u_, p_, k_, w_, t)
-        stop_annotation()
         get_working_tape().progress_bar = ProgressBar
         optval = minimize(Jhat)
         print(f"Vent vel = {float(JetIn):1.2f}, J = {float(Jhat(JetIn)):1.2e}")
@@ -209,6 +308,8 @@ for jj in range(100):
         solve(Pol == 0, t, bcs=bcp)
 
         File.write(u_, p_, k_, w_, t)
+        break
     else:
-        ConstRe = ConstRe*10
-        Re = assign(ConstRe)
+        ConstRe = ConstRe*1.5
+        Re.assign(ConstRe)
+"""
